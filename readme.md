@@ -1,18 +1,25 @@
 
 # Real Time Image Classifier: Thumbs up vs down
 
-Written in pure python, this repository was used to [train](https://github.com/BrianLesko/fast-binary-image-classification/blob/main/train.py) and [deploy](https://github.com/BrianLesko/fast-binary-image-classification/blob/main/deploy.py) an image classifier engineered to steer a mobile robot. 
+This repository contains everything necessary to label images, and train a small image classifier model engineered to steer a mobile robot.
 
-The classifier outputs one of three classes left, right, or straight. When deployed for self driving, the model output is used to incrementally adjust the steering angle. 
+## Labelling Data
+
+a 2B LLVM model is used to label images. Running this model for one image takes several seconds on a macbook pro, far too slow for real time control.
+
+## Training a smaller model (VGG-16)
+
+VGG-16 was chosen due to its quick inference. A classification can be made in under a tenth of a second, fast enough for a self steering program.
+
+Once the labelled dataset is large enough, the pretrained VGG-16 model is frozen, and a custom classifer is added on top. These layers are then trained using the labelled dataset. 
 
 ## Repo Structure
 
-steering-img-classification/
-├── download.py           # Script to download the dataset
-├── model.pth             # Trained model weights file
+selfdriving-vgg16/
 ├── myenv/                # Virtual environment directory (excluded from version control)
 ├── readme.md             # Project documentation
 ├── requirements.txt      # List of Python dependencies
+├── label.py
 ├── train.py              # Script for training the model
 ├── test.py               # Script for testing the trained model using your laptop's webcam
 
