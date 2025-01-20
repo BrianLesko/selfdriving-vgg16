@@ -24,9 +24,9 @@ selfdriving-vgg16/
 ├── test.py               # Script for testing the trained model using your laptop's webcam  
 ```
 
+WIP
 
-
-## WIP
+## Previous project readme using VGG-16 for real time classification
 
 
 
