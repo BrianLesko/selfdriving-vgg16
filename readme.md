@@ -1,5 +1,5 @@
 
-# Real Time Image Classifier: Thumbs up vs down
+# Real Time Image Classifier for self steering
 
 This repository contains everything necessary to label images, and train a small image classifier model engineered to steer a mobile robot.
 
