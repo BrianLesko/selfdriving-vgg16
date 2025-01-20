@@ -16,12 +16,12 @@ Once the labelled dataset is large enough, the pretrained VGG-16 model is frozen
 ## Repo Structure
 
 selfdriving-vgg16/
-├── myenv/                # Virtual environment directory (excluded from version control)
-├── readme.md             # Project documentation
-├── requirements.txt      # List of Python dependencies
-├── label.py
-├── train.py              # Script for training the model
-├── test.py               # Script for testing the trained model using your laptop's webcam
+├── myenv/                # Virtual environment directory (excluded from version control)  
+├── readme.md             # Project documentation  
+├── requirements.txt      # List of Python dependencies  
+├── label.py  
+├── train.py              # Script for training the model  
+├── test.py               # Script for testing the trained model using your laptop's webcam  
 
 
 
