@@ -14,7 +14,7 @@ VGG-16 was chosen due to its quick inference. A classification can be made in un
 Once the labelled dataset is large enough, the pretrained VGG-16 model is frozen, and a custom classifer is added on top. These layers are then trained using the labelled dataset. 
 
 ## Repo Structure
-
+```
 selfdriving-vgg16/
 ├── myenv/                # Virtual environment directory (excluded from version control)  
 ├── readme.md             # Project documentation  
@@ -22,7 +22,7 @@ selfdriving-vgg16/
 ├── label.py  
 ├── train.py              # Script for training the model  
 ├── test.py               # Script for testing the trained model using your laptop's webcam  
-
+```
 
 
 
