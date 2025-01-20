@@ -1,6 +1,9 @@
-my_env
+myenv
 /like
 /dislike
+/labelled_dataset
+/labelled_dataset_backup
 mysecrets.py
 __pycache__
 .DS_Store
+*.pth

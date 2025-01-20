@@ -1,170 +1,164 @@
-# Brian Lesko
-# 6/19/2024
-# Use transfer learning to quickly retrain a VGG16 model to classify images.
-
 import os
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import Dataset, DataLoader
+from torch.utils.data import DataLoader, random_split
+from torchvision import models, transforms, datasets
 import time
-from PIL import Image
-from torchvision import models, transforms
-from sklearn.model_selection import train_test_split
-import numpy as np
-import streamlit as st
 
-print("Loading the VGG model")
+# Augment left and right classes by flipping and saving in a new class folder
+#from augment_horizontally import augment_images
+#source_dir = "./labelled_dataset"
+#augmented_left_dir = "./labelled_dataset/right"
+#augmented_right_dir = "./labelled_dataset/left"
+#augment_images(source_dir, augmented_left_dir, augmented_right_dir)
+
 # Load and modify the pre-trained VGG16 model
+print("Loading the VGG model")
 model = models.vgg16(pretrained=True)
 for param in model.parameters():
-    param.requires_grad = False  # Freeze all the pretrained layers
+    param.requires_grad = False  # Freeze all pretrained layers
 
 print("Adding classifier")
-# Updating the classifier with the correct input size
+# Update the classifier
 input_features = model.classifier[0].in_features
 model.classifier = nn.Sequential(
-    nn.Linear(input_features, 256),  # First fully connected layer
-    nn.ReLU(),                       # Activation function
-    nn.Dropout(p=0.6),               # Dropout for regularization
-    nn.Linear(256, 3)                # Output layer for 3 classes
+    nn.Linear(input_features, 256),
+    nn.LeakyReLU(negative_slope=0.01),
+    nn.Dropout(p=0.8),
+    nn.Linear(256, 3)  # Output layer for 3 classes
 )
 
-print("Initializing classifier weights")
+print("Initializing weights")
 # Initialize weights for the new layers
 def init_weights(m):
     if isinstance(m, nn.Linear):
-        torch.nn.init.xavier_uniform_(m.weight)
+        torch.nn.init.kaiming_uniform_(m.weight)
         m.bias.data.fill_(0.01)
 model.classifier.apply(init_weights)
 
-print("freezing the vgg 16 layers to prevent overfitting")
-# Freeze the old layers
-for param in model.features.parameters():
-    param.requires_grad = False
-
-# Optimizer setup to update only the new classifier layers
-print("Setting up the optimizer and loss function")
-optimizer = optim.Adam(model.parameters(), lr=0.00005)
-criterion = nn.CrossEntropyLoss() # For multi-class classification
-print("Using the adam optimizer (adaptive learning rate) and cross entropy loss (for multiclass classification)")
-
-
-# Check for MPS (Metal Performance Shaders) support
-print("Checking for Apple's Metal (MPS) support or CUDA hardware acceleration")
-if torch.backends.mps.is_available():
-    device = torch.device("mps")  # Use MPS if available
-elif torch.cuda.is_available():
-    device = torch.device("cuda:0")  # Use CUDA if available
-else:
-    device = torch.device("cpu")  # Fallback to CPU
+print("Setting up hardware acceleration")
+# Check for hardware acceleration
+device = torch.device("mps" if torch.backends.mps.is_available() else "cuda:0" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 model.to(device)
 
-print("Defining the Transformation for input images as the ImageNet standard")
-# Define transformations for image preprocessing
-transform = transforms.Compose([
-    transforms.Resize(256),
-    transforms.CenterCrop(224),
-    transforms.RandomHorizontalFlip(),
+print("Setting up the optimizer and loss function")
+#optimizer = optim.AdamW(model.classifier.parameters(), lr=0.0001, weight_decay=1e-4) # 73% test acc
+optimizer = optim.Adam(model.classifier.parameters(), lr=0.0001)
+class_weights = [.9, .9, .5]
+weights = torch.tensor(class_weights, dtype=torch.float)
+criterion = nn.CrossEntropyLoss(weight=weights.to(device))
+print(f"Using class weights: {weights}")
+
+# Setting up data augmentation and data loaders
+train_transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.RandomRotation(5),
+    transforms.RandomResizedCrop(224, scale=(0.8, 1.0)),
+    transforms.ColorJitter(brightness=0.2, contrast=0.2, saturation=0.2, hue=0.1),
     transforms.ToTensor(),
     transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
 ])
 
-# Custom dataset class to handle images from two folders
-class Dataset(Dataset):
-    def __init__(self, images, transform=None):
-        self.transform = transform
-        self.images = images
+test_transform = transforms.Compose([
+    transforms.Resize((256, 256)),
+    transforms.CenterCrop(224),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225])
+])
 
-    def __len__(self):
-        return len(self.images)
+# Load the dataset with no transformations initially
+dataset = datasets.ImageFolder('./labelled_dataset')
 
-    def __getitem__(self, idx):
-        image_path, label = self.images[idx]
-        image = Image.open(image_path).convert('RGB')
-        if self.transform:
-            image = self.transform(image)
-        return image, label
-    
-def extract_label_from_filename(filename):
-    label = filename.split('.')[0]  # Take the filename "left.#.jpg"
-    return label
+# Show some example transformations
+import matplotlib.pyplot as plt
+import random
+def show_transformed_images(transform, dataset, num_images=6):
+    fig, axes = plt.subplots(1, num_images, figsize=(15, 5))
+    random_indices = random.sample(range(len(dataset)), num_images)
 
-class1 = 'left'
-class2 = 'right'
-class3 = 'straight'
-print("Create the test train split")
-# Prepare the dataset and dataloaders
-photos_dir = './labelled_dataset'
-all_images = [(os.path.join(photos_dir, file), extract_label_from_filename(file)) for file in os.listdir(photos_dir)]
-# count the number of images in each class
-class1_count = len([file for file in os.listdir(photos_dir) if file.startswith(class1)])
-class2_count = len([file for file in os.listdir(photos_dir) if file.startswith(class2)])
-class3_count = len([file for file in os.listdir(photos_dir) if file.startswith(class3)])
-print(f"Class 1 left ({class1}): {class1_count} images")
-print(f"Class 2 right ({class2}): {class2_count} images")
-print(f"Class 3 straight ({class3}): {class3_count} images")
+    for i, idx in enumerate(random_indices):
+        img, label = dataset[idx]  # Get an image and its label
+        transformed_img = transform(img)  # Apply the transformations
 
-train_size = round((class1_count + class2_count + class3_count) / 2, 0)
-train_images, test_images = train_test_split(all_images, test_size=train_size, train_size=train_size, random_state=42)
+        # Convert the transformed image back to a displayable format
+        transformed_img = transformed_img.permute(1, 2, 0).numpy()  # Rearrange dimensions
+        transformed_img = transformed_img - transformed_img.min()  # Normalize for visualization
+        transformed_img = transformed_img / transformed_img.max()
 
-train_dataset = Dataset(train_images, transform=transform)
-test_dataset = Dataset(test_images, transform=transform)
+        # Display the image
+        axes[i].imshow(transformed_img)
+        axes[i].set_title(f"Label: {dataset.classes[label]}")
+        axes[i].axis('off')
 
-train_dataloader = DataLoader(train_dataset, batch_size=32, shuffle=True)
-test_dataloader = DataLoader(test_dataset, batch_size=32, shuffle=True)
+    plt.tight_layout()
+    plt.show()
+show_transformed_images(train_transform, dataset)
 
-def evaluate_model(model, dataloader, criterion, device, tolerance=0.3):
-    model.eval()  # Set the model to evaluation mode
+# Split indices for training and testing
+train_size = int(0.5 * len(dataset))
+test_size = len(dataset) - train_size
+train_dataset, test_dataset = random_split(dataset, [train_size, test_size])
+
+# Apply different transformations to the train and testing splits
+train_dataset.dataset.transform = train_transform
+test_dataset.dataset.transform = test_transform
+
+# Print dataset statistics
+print(f"Training samples: {len(train_dataset)}, Testing samples: {len(test_dataset)}")
+
+# Create dataloaders
+train_dataloader = DataLoader(train_dataset, batch_size=200, shuffle=True)
+test_dataloader = DataLoader(test_dataset, batch_size=200, shuffle=False)
+
+def evaluate_model(model, dataloader, criterion, device):
+    model.eval()
     total_loss = 0.0
     total_correct = 0
     total_samples = 0
     with torch.no_grad():
-        for data in dataloader:
-            inputs, labels = data
+        for inputs, labels in dataloader:
             inputs, labels = inputs.to(device), labels.to(device)
-            # Forward pass
             outputs = model(inputs)
-            loss = criterion(outputs.view(-1), labels.type(torch.float))
+            loss = criterion(outputs, labels)
             total_loss += loss.item()
-            # Calculate accuracy within tolerance
-            predicted = outputs.view(-1)
-            total_correct += (torch.abs(predicted - labels) <= tolerance).sum().item()
+            _, predicted = torch.max(outputs, 1)
+            total_correct += (predicted == labels).sum().item()
             total_samples += labels.size(0)
-    # Compute average loss and accuracy
     average_loss = total_loss / len(dataloader)
     accuracy = 100 * total_correct / total_samples
     return average_loss, accuracy
 
 print("Starting training")
-# Training loop
 num_epochs = 7
 for epoch in range(num_epochs):
     start_time = time.time()
+    model.train()
     running_loss = 0.0
-    correct = 0
-    total = 0
+    total_correct = 0
+    total_samples = 0
 
-    for i, data in enumerate(train_dataloader, 0):
-        inputs, labels = data
+    for inputs, labels in train_dataloader:
         inputs, labels = inputs.to(device), labels.to(device)
 
         optimizer.zero_grad()
         outputs = model(inputs)
-        loss = criterion(outputs.view(-1), labels.type(torch.float))
+        loss = criterion(outputs, labels)
         loss.backward()
         optimizer.step()
 
         running_loss += loss.item()
-        predicted = (outputs.view(-1) > 0.5).type(torch.float)
-        total += labels.size(0)
-        correct += (predicted == labels).sum().item()
+        _, predicted = torch.max(outputs, 1)
+        total_correct += (predicted == labels).sum().item()
+        total_samples += labels.size(0)
 
-    accuracy = 100 * correct / total
-    print(f"Epoch {epoch + 1}: Loss: {running_loss / (i + 1):.4f}, Accuracy: {correct}/{total} or {accuracy:.2f}%, Time: {(time.time() - start_time):.2f} seconds")
+    train_loss = running_loss / len(train_dataloader)
+    train_accuracy = 100 * total_correct / total_samples
+    test_loss, test_accuracy = evaluate_model(model, test_dataloader, criterion, device)
 
-#### Save and load the model
-torch.save(model.state_dict(), 'model.pth')
-model.load_state_dict(torch.load('model.pth'))
-print("Model loaded from model.pth")
+    print(f"Epoch {epoch + 1}: Train Loss: {train_loss:.4f}, Train Accuracy: {train_accuracy:.2f}%, "
+          f"Test Loss: {test_loss:.4f}, Test Accuracy: {test_accuracy:.2f}%, Time: {(time.time() - start_time):.2f}s")
+
+torch.save(model.state_dict(), 'vgg16_model.pth')
+print("Model saved as vgg16_model.pth")

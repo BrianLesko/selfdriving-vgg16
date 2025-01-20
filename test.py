@@ -23,8 +23,7 @@ model.classifier = nn.Sequential(
     nn.Linear(input_features, 256),
     nn.ReLU(),
     nn.Dropout(p=0.6),
-    nn.Linear(256, 1),
-    nn.Tanh() # results in a value between -1 and 1
+    nn.Linear(256, 3)  # Output layer for 3 classes
 )
 
 model.load_state_dict(torch.load('model.pth'))  # Load the weights
@@ -52,24 +51,31 @@ with col3:
     Time2Placeholder = st.empty()
     Time3Placeholder = st.empty()
 
+gst_pipeline = (
+    "udpsrc address=10.42.0.90 port=8008 buffer-size=0 ! "
+    "h264parse ! vtdec ! videoconvert ! appsink max-lateness=-1 sync=false drop=true"
+)
+
 # Use opencv to get the current camera frame
 # get the camera feed from the TCP stream at 10.42.0.1:8000
-if "camera" not in st.session_state:
-    #st.session_state.camera = cv2.VideoCapture(0)
-    #st.session_state.camera = cv2.VideoCapture('tcp://10.42.0.1:8000')
-    #st.session_state.camera = cv2.VideoCapture('udp://0.0.0.0:8000')
-    st.session_state.camera = cv2.VideoCapture('rtsp://10.42.0.1:8554/stream1')
-    st.session_state.camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
-    st.session_state.camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-    st.session_state.camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-    st.session_state.camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'YUY2')) # faster than MJPG
+#st.session_state.camera = cv2.VideoCapture(0)
+# to use an rtsp stream from an rpi run this on the rpi
+# # rpicam-vid -t 0 -n --inline --libav-format h264 --intra 10 --framerate 30 --bitrate 10000000 --width 640 --height 480 --flush --profile baseline --level 4.1 --denoise off -o - | gst-launch-1.0 fdsrc fd=0 ! udpsink host=10.42.0.90 port=8008 sync=false
+camera = cv2.VideoCapture(gst_pipeline, cv2.CAP_GSTREAMER)
+if not camera.isOpened():
+    print("Error: Unable to open GStreamer pipeline.")
+camera.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+camera.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
+camera.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
+camera.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc(*'YUY2')) # faster than MJPG
 
 count=0
 start_time = time.time()
+class_labels = {0: "left", 1: "right", 2: "straight"}
 while True: 
   try:
     count = count+1
-    ret, frame = st.session_state.camera.read()
+    ret, frame = camera.read()
     ret, jpeg = cv2.imencode('.jpg', frame)
     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
 
@@ -90,7 +96,11 @@ while True:
     # Make a prediction
     time1 = time.time()
     output = model(image)
-    Time3Placeholder.write(f'Prediction Time: {time.time() - time1}')
-    Prediction.write(f"Prediction: {output.item()}")
-    TimePlaceholder.write(f'FPS: {count/(time.time()-start_time)}')
+    Time3Placeholder.write(f'Prediction Time: {round(time.time() - time1,0)}')
+    # Get the predicted class index
+    predicted_index = torch.argmax(output, dim=1).item()
+    # Get the corresponding class label
+    predicted_label = class_labels[predicted_index]
+    Prediction.write(f"Prediction: {predicted_label}")
+    TimePlaceholder.write(f'FPS: {round(count/(time.time()-start_time),0)}')
   except: pass
