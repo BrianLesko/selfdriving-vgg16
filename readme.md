@@ -3,6 +3,13 @@
 
 This repository contains everything necessary to label images, and train a small image classifier model engineered to steer a mobile robot.
 
+## Getting Started
+```
+python3.12 -m venv myenv
+source myenv/bin/activate
+pip install -r requirements.txt
+```
+
 ## Labelling Data
 
 a 2B LLVM model is used to label images. Running this model for one image takes several seconds on a macbook pro, far too slow for real time control.
